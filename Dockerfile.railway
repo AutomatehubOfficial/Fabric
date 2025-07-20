@@ -1,0 +1,59 @@
+# Use official golang image as builder
+FROM golang:1.24.2-alpine AS builder
+
+# Install required packages for building
+RUN apk add --no-cache git ca-certificates tzdata
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod and sum files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application with optimizations for Railway
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o fabric ./cmd/fabric
+
+# Use alpine as final base image (scratch doesn't work well with Railway)
+FROM alpine:latest
+
+# Install ca-certificates for HTTPS requests and yt-dlp for YouTube functionality
+RUN apk --no-cache add ca-certificates python3 py3-pip && \
+    pip3 install --break-system-packages yt-dlp
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S fabric && \
+    adduser -S fabric -u 1001 -G fabric
+
+# Set working directory
+WORKDIR /app
+
+# Copy the binary from builder
+COPY --from=builder /app/fabric ./fabric
+
+# Copy data directory (patterns and strategies)
+COPY data ./data
+
+# Create config directory and set permissions
+RUN mkdir -p /home/fabric/.config/fabric && \
+    chown -R fabric:fabric /home/fabric && \
+    chown -R fabric:fabric /app
+
+# Switch to non-root user
+USER fabric
+
+# Railway provides PORT environment variable
+EXPOSE $PORT
+
+# Health check for Railway
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:$PORT/models/names || exit 1
+
+# Run the binary - Railway will set PORT automatically
+ENTRYPOINT ["./fabric"]
+CMD ["--serve", "--address", ":$PORT"]

@@ -1,0 +1,16 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile.railway"
+
+[deploy]
+startCommand = "./fabric --serve --address :$PORT"
+healthcheckPath = "/models/names"
+healthcheckTimeout = 100
+restartPolicyType = "on-failure"
+restartPolicyMaxRetries = 10
+
+[environments.production]
+variables = { }
+
+[environments.staging]
+variables = { }
